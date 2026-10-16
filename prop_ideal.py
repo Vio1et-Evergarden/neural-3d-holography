@@ -100,7 +100,7 @@ class Propagation(nn.Module):
 
         # momentum/reciprocal space
         # FY, FX = torch.meshgrid(fy, fx)
-        FX, FY = torch.meshgrid(fx, fy)
+        FX, FY = torch.meshgrid(fx, fy, indexing='ij')
         FX = torch.transpose(FX, 0, 1)
         FY = torch.transpose(FY, 0, 1)
 

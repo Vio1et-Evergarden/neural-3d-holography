@@ -19,7 +19,7 @@ def load_alg(alg_type):
 
 def gradient_descent(init_phase, target_amp, target_mask=None, forward_prop=None, num_iters=1000, roi_res=None,
                      loss_fn=nn.MSELoss(), lr=0.01, out_path_idx='./results',
-                     citl=False, camera_prop=None, writer=None, admm_opt=None,
+                     citl=False, camera_prop=None, writer=None, admm_opt=None, iteration_callback=None,
                      *args, **kwargs):
     """
     Gradient-descent based method for phase optimization.
@@ -42,6 +42,8 @@ def gradient_descent(init_phase, target_amp, target_mask=None, forward_prop=None
     """
 
     assert forward_prop is not None
+    if num_iters < 1:
+        raise ValueError('num_iters must be at least 1')
     dev = init_phase.device
     num_iters_admm_inner = 1 if admm_opt is None else admm_opt['num_iters_inner']
 
@@ -51,7 +53,7 @@ def gradient_descent(init_phase, target_amp, target_mask=None, forward_prop=None
 
     loss_vals = []
     loss_vals_quantized = []
-    best_loss = 10.
+    best_loss = float('inf')
     best_iter = 0
 
     if target_mask is not None:
@@ -101,6 +103,23 @@ def gradient_descent(init_phase, target_amp, target_mask=None, forward_prop=None
                 loss_val = loss_val + admm_opt['rho'] * loss_prior
 
             loss_val.backward()
+
+            # Snapshot the phase that produced this loss BEFORE Adam updates it.
+            # A plain assignment aliases the live parameter and is not a snapshot.
+            with torch.no_grad():
+                if not torch.isfinite(loss_val):
+                    raise FloatingPointError('Non-finite phase optimization loss')
+                if loss_val.item() < best_loss:
+                    best_phase = slm_phase.detach().clone()
+                    best_loss = loss_val.item()
+                    best_amp = (s * recon_amp).detach().clone()
+                    best_iter = t + 1
+                if iteration_callback is not None:
+                    iteration_callback(t + 1, {
+                        'loss': loss_val.item(),
+                        'scale': s.item(),
+                        'gradient_rms': slm_phase.grad.square().mean().sqrt().item(),
+                    })
             optimizer.step()
 
         ## ADMM steps
@@ -127,12 +146,7 @@ def gradient_descent(init_phase, target_amp, target_mask=None, forward_prop=None
                         u *= admm_opt['tau_decr']
                     z_prev = z
 
-        with torch.no_grad():
-            if loss_val < best_loss:
-                best_phase = slm_phase
-                best_loss = loss_val
-                best_amp = s * recon_amp
-                best_iter = t + 1
+        loss_vals.append(loss_val.item())
     print(f' -- optimization is done, best loss: {best_loss}')
 
     return {'loss_vals': loss_vals,
