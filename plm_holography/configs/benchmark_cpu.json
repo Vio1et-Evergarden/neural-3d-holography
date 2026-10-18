@@ -1,0 +1,9 @@
+{
+  "extends": "lab_rgb_ideal.json",
+  "name": "cpu_benchmark",
+  "output": "../results/benchmark_cpu",
+  "benchmark": {
+    "methods": ["independent", "joint", "global", "causal"],
+    "scenes": ["static", "moving"], "seeds": [0, 1, 2]
+  }
+}

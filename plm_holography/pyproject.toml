@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "plmholo"
+version = "0.1.0"
+description = "ASM, RGB temporal optimization, and 4-bit phase PLM research simulations"
+requires-python = ">=3.11"
+dependencies = ["torch>=2.2", "numpy>=1.26,<2", "matplotlib>=3.9", "imageio>=2.35", "pillow>=10"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["plmholo*"]

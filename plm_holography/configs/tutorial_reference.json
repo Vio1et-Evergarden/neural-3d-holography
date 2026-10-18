@@ -1,0 +1,13 @@
+{
+  "name": "tutorial_reference_optics",
+  "output": "../results/tutorial_reference",
+  "optics": {
+    "shape": [64, 64], "pitch_m": [0.0000064, 0.0000064],
+    "colors": ["G"], "wavelengths_m": [0.0000005177],
+    "depths_m": [0.0034, 0.0044, 0.0057], "frequency_grid": "legacy"
+  },
+  "schedule": {"cycles": 1, "order": ["G"], "window_cycles": 1, "gains": [1]},
+  "target": {"kind": "synthetic", "scene": "static"},
+  "quantization": {"method": "continuous"},
+  "optimization": {"method": "global", "iterations": 200}
+}

@@ -1,0 +1,8 @@
+{
+  "extends": "lab_rgb_ideal.json",
+  "name": "smoke",
+  "output": "../results/smoke",
+  "optics": {"shape": [16, 16]},
+  "schedule": {"cycles": 4, "window_cycles": 2},
+  "optimization": {"iterations": 4, "log_every": 1}
+}

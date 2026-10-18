@@ -1,0 +1,8 @@
+{
+  "extends": "lab_rgb_ideal.json",
+  "name": "full_resolution_cuda_template",
+  "device": "cuda",
+  "output": "../results/full_resolution_cuda",
+  "optics": {"shape": [800, 1358], "propagation_batch": 1},
+  "optimization": {"method": "causal"}
+}

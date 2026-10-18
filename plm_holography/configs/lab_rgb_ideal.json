@@ -1,0 +1,19 @@
+{
+  "name": "lab_rgb_ideal",
+  "output": "../results/lab_rgb_ideal",
+  "optics": {
+    "shape": [64, 64], "pitch_m": [0.0000108, 0.0000108],
+    "colors": ["R", "G", "B"],
+    "wavelengths_m": [0.000000640, 0.000000516, 0.0000004555],
+    "depths_m": [0.0034, 0.0044, 0.0057],
+    "frequency_grid": "fft", "numerical_aperture": null
+  },
+  "schedule": {
+    "cycles": 16, "order": ["G", "R", "B"], "rate_hz": 1440,
+    "window_cycles": 8, "gains": [3, 3, 3]
+  },
+  "target": {"kind": "synthetic", "scene": "moving"},
+  "motion": {"enabled": false},
+  "quantization": {"method": "smooth", "lut_path": null},
+  "optimization": {"method": "global", "iterations": 200, "loss": "intensity_mse"}
+}

@@ -1,0 +1,9 @@
+{
+  "extends": "lab_rgb_ideal.json",
+  "name": "fixed_lower_power_reconstruction_demo",
+  "output": "../results/reconstruction_demo",
+  "target": {"kind": "synthetic", "scene": "static"},
+  "schedule": {"gains": [1.5, 1.5, 1.5]},
+  "quantization": {"method": "post_quantized"},
+  "optimization": {"method": "global", "iterations": 400, "lr": 0.01, "log_every": 100}
+}

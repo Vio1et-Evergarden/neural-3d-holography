@@ -1,0 +1,6 @@
+# Verified with Python 3.11 on Intel macOS.
+torch==2.2.2
+numpy==1.26.4
+matplotlib==3.9.2
+imageio==2.35.1
+pillow==12.3.0

@@ -1,0 +1,9 @@
+{
+  "extends": "lab_rgb_ideal.json",
+  "name": "motion_example",
+  "output": "../results/motion_example",
+  "optics": {"shape": [32, 32]},
+  "schedule": {"cycles": 8, "window_cycles": 4},
+  "motion": {"enabled": true, "velocity_px_s": [150, 0]},
+  "optimization": {"method": "causal", "iterations": 25}
+}
