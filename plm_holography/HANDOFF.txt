@@ -1,64 +1,286 @@
-PLM holography handoff — 2026-10-19
+1. SHORT MEETING SUMMARY
 
-UPDATE: Configurable stride is now implemented and CPU-validated.
-schedule.stride_cycles=null (or omitted) preserves the original per-physical-frame
-behavior. An integer 1<=S<=window_cycles uses RGB/mono cycle units, starts at the
-first full window, and includes a shortened final step when needed. For W=8,S=4,
-causal first jointly solves cycles 1-8, then freezes history and solves new cycles
-9-12, then 13-16. Global jointly updates the whole sequence using those window
-endpoints. Evaluation still covers every physical exposure. Block-causal planning
-requires each new block's targets before displaying that block.
-Use configs/sliding_w8_s4_causal.json or configs/sliding_w8_s4_global.json.
-36 tests passed; 32 legacy combinations reproduced pre-change outputs exactly.
-Both W8/S4 CLI modes passed short CPU runs and fresh-process reload (zero error).
-See docs/VALIDATION.md and README.md. No full benchmark or hardware work was added
-as part of this extension; the unfinished benchmark below remains a dated snapshot.
+I have built a standalone simulation library for 4-bit phase PLM holography,
+extending the single-frame ASM phase-optimization workflow to RGB, multiple
+depths and temporal integration. It supports independent, fixed-group joint,
+whole-sequence global and fixed-history causal optimization. Both window length
+W and stride S are configurable. Phase quantization and an optional known-eye-
+motion model are implemented, and saved results can be independently reproduced.
 
-Implementation is available under plm_holography/. Original repository modules
-are not imported or modified by this library. Reuse ../.venv/bin/python here.
+The current achievement is a working, tested simulation framework. A complete
+dynamic-quality comparison, measured hardware calibration and full-resolution
+validation are still pending. The next research step is a controlled comparison
+of global and causal W8/S4 optimization, followed by quantization and eye-motion
+experiments. This is Holospeed-inspired work, not a complete paper reproduction.
 
-Implemented: padded differentiable ASM; RGB scheduling; intensity-based temporal
-integration; static/dynamic focal stacks; independent, fixed-group, global and
-causal optimization; continuous/post-quantized/STE/smooth phase methods;
-replaceable per-color 16-state LUTs; optional translation-based eye motion;
-artifact saving, fresh-process evaluation, benchmark CLI and documentation.
+2. IMPLEMENTED CAPABILITIES
 
-Verified: 26 CPU tests passed. Smoke, motion and reconstruction demonstration
-runs saved and reloaded successfully. Reconstruction demo full-window intensity
-MSE is 0.0031683063; reload raw/perceived differences are zero. This demonstration
-uses fixed gains 1.5 and 400 post-quantized updates, unlike the common benchmark
-(gains 3, 200 smooth-surrogate updates); do not rank them as matched experiments.
+- Differentiable padded ASM with configurable wavelengths, pixel pitch, depths,
+  crop, numerical aperture, cached kernels and FFT-consistent frequency grids.
+  One phase pattern produces fields at all three depths; it is not a separate
+  independently chosen phase for each depth.
+- Static/dynamic monochrome or RGB focal-stack targets from synthetic scenes,
+  numerical NPZ arrays or image manifests. Image loading explicitly decodes sRGB.
+  Existing demonstrations use synthetic targets, not measured scene datasets.
+- Exposure-weighted temporal INTENSITY integration. Complex fields and
+  amplitudes are never summed across separate exposures. Brightness gains are
+  fixed; there is no automatic brightness fitting.
+- Four temporal optimization methods, Adam or plain SGD, and intensity MSE or
+  amplitude MSE after intensity integration. SGD is an optimizer, not a loss.
+- Continuous phases, continuous optimization with hard-quantized checkpoint
+  selection, hard-forward STE, and a custom smooth-gradient surrogate.
+  Replaceable 16-state per-color phase LUTs support nonuniform/nonmonotonic
+  responses while preserving physical code IDs.
+- Optional supplied/synthetic 2D eye translations. Target and reconstruction
+  undergo the same alignment and integration, with shared valid-pixel masks.
+- Saved phases/codes, embedded inputs/LUTs, reconstructions, losses, MSE/PSNR,
+  temporal errors, fixed-scale previews, propagation counts and runtime.
+  Evaluation reconstructs the saved state in a fresh Python process.
 
-Unfinished / next work:
-1. Finish the 24-run benchmark and its final report. Last filesystem inspection
-   found 14 completed rows in results/benchmark_cpu/summary.csv (all 12 static
-   runs, moving seed 0 independent and joint). Treat this as a dated snapshot;
-   inspect current files before resuming. Earlier process session IDs are no
-   longer accessible, so their current execution state is not confirmed.
-   Do not start a duplicate while an existing benchmark is still running.
-   Once stopped, from this directory run:
-   ../.venv/bin/python -m plmholo benchmark --config configs/benchmark_cpu.json --resume
-   Completed matching runs are skipped; incomplete individual runs restart.
-2. Evaluate each completed benchmark run in a fresh process:
-   ../.venv/bin/python -m plmholo evaluate --run results/benchmark_cpu/RUN_NAME
-   Inspect reload_verification.json and evaluation.json; do not assume the
-   previous background verifier finished. Check paired initialization/target
-   identifiers and propagation counts across methods for each seed and scene.
-3. Summarize quality, temporal stability and computation after all runs finish.
-   Some recorded timings overlap other validation jobs, so rerun in isolation
-   if making rigorous runtime comparisons. Default benchmark residuals are
-   substantial: source brightness, target power and finite-crop light loss
-   constrain the result. Do not introduce automatic brightness fitting to hide it.
-4. CUDA, full-resolution execution and hardware behavior remain unvalidated.
-   Measured wavelength-dependent phase LUTs, source powers and optical geometry
-   are future lab inputs, not verified properties of the current ideal model.
+3. AGREED WINDOW MODEL
 
-User now wants a gradual explanation of the physical model and how to use the
-library, with little implementation detail. Start by opening the existing
-reconstruction_demo/comparison.png and re-evaluating saved phases; no need to
-repeat a long optimization. Explain three depths as cross sections of one field,
-RGB as sequential physical exposures, and temporal accumulation as weighted
-intensity addition. Introduce global versus causal methods after this is clear.
+W and S count complete RGB cycles. At the default 1440 physical PLM updates/s,
+W=8 means eight patterns per color: 24 exposures spanning about 16.67 ms.
+Playback order is G,R,B. Default source gains are 3 per color to compensate
+the one-third duty cycle in simulation; these are not measured laser powers.
 
-Useful documents: README.md, docs/DESIGN.md, docs/REFERENCES.md,
-docs/VALIDATION.md. All generated experiments remain under results/.
+For W=8, S=4, windows cover cycles 1–8, 5–12 and 9–16:
+- Causal: optimize the first 24 phases jointly, then only 12 new phases per
+  block. Previously committed phases stay fixed. Each new block's targets must
+  be available before displaying it; this is buffered/offline block planning.
+- Global: optimize all 48 phases together using the selected window endpoints.
+  It has access to the whole target sequence and does not commit blocks.
+
+Every method is evaluated at every physical endpoint, including intermediate
+ones. Full windows are the main quality metric; startup is reported separately.
+An omitted/null stride advances optimization at every physical exposure, while
+integer S=1 advances one RGB cycle (three exposures). They are different modes.
+
+Current research entry points:
+configs/sliding_w8_s4_causal.json
+configs/sliding_w8_s4_global.json
+Both specify 64x64, 48 phases, three depths, 200 updates per phase, gain 3 and
+motion disabled. Their full quality runs are pending. The base lab profile still
+uses global optimization with null stride; its defaults were not changed.
+
+4. WHAT HAS ACTUALLY BEEN VERIFIED
+
+Existing environment: Python 3.11.11, PyTorch 2.2.2, NumPy 1.26.4, Intel Mac CPU.
+CUDA is unavailable here. All 40 unit tests passed after cleanup. All 19 complete
+saved experiments passed fresh-process evaluation with zero maximum difference
+in raw and integrated reconstructions. Original run snapshots were unchanged.
+Evidence: docs/VALIDATION.md and .cache/repository_audit.json.
+
+Tests cover propagation/gradients, color/depth separation, temporal integration,
+stride/tails/startup, frozen causal history, quantization, motion and reload.
+The existing W8/S4 runs are only 16x16 with four updates: functional validation,
+not evidence of converged image quality. The matched-eye-motion configurations
+also have functional tests, but their full 64x64/200-update quality runs are pending.
+
+A separate static demonstration improved full-window MSE from 0.03654789 to
+0.00316831. It uses gain 1.5, 400 updates and post-quantization, so it cannot be
+ranked against the standard gain-3, 200-update, smooth-surrogate benchmark.
+
+5. WHAT "14 OF 24 BENCHMARK RUNS" MEANS
+
+This is an experiment count, NOT a count of implemented or missing features:
+2 scenes (static/moving) x 3 initial seeds (0/1/2) x 4 methods = 24 runs.
+Each uses 64x64 phases, three depths, 48 RGB exposures, a 24-exposure integration
+window and 200 optimizer updates per phase. Methods share initialization and
+targets within each scene/seed group, with fixed optics and gains.
+
+Completed: all 12 static runs, plus moving seed0 independent and joint.
+Pending: moving seed0 global/causal and all four methods for moving seeds1/2.
+The 14 completed runs have matched initial/target hashes within each group and
+19,296 phase propagations per run. There is no complete benchmark report yet.
+
+IMPORTANT: this older benchmark has motion OFF and NULL stride. It is not the
+later W8/S4 experiment. Its completed final MSE values are approximately 0.19–0.21;
+convergence and quality need further investigation. Do not claim that causal
+optimization, sliding windows or the custom quantizer already outperform baselines.
+Historical runtimes overlapped other jobs and are not isolated speed measurements.
+
+6. PRIORITIZED NEXT WORK
+
+1) Run the full W8/S4 moving-target causal/global comparison with matched optics,
+   gains, LUTs, initialization and update budgets; then expand to seeds 0,1,2.
+   Examine every physical endpoint, not just selected optimization windows.
+2) Run matched-tracking quality experiments. Evaluate motion-aware and fixed-eye
+   trained solutions under the SAME viewing trajectory and common valid region
+   when comparing their quality. Different perception objectives are not directly
+   comparable scores. The configured 434.2978723404255 px/s tracking speed only
+   matches the current 64x64, 48-exposure, 1440-Hz synthetic scene.
+3) Finish the older benchmark's ten remaining runs and fresh-process evaluation;
+   generate the final report. Check for an existing process before resuming.
+4) Compare quantizers and convergence under fixed gains/targets. Investigate
+   power inside the observation crop and target feasibility without fitting away
+   brightness errors. Add a real focal-stack input experiment.
+5) Obtain measured per-color LUTs, illumination/efficiency, optical geometry,
+   aperture and exposure/switching timing. Current wavelengths and demonstration
+   depths are provisional simulation choices, not calibrated lab measurements.
+6) Validate CUDA and the 800x1358 template. Current code stores complete targets
+   and outputs; global optimization also retains the sequence's autograd graph.
+   Small FFT batches do not guarantee that the whole run fits GPU memory.
+
+Full Holospeed reproduction would additionally require addressing stochastic
+eye-motion/kernel objectives, the supplement's referenced rounding method,
+calibrated optics and differences in the dynamic baseline. See
+docs/HOLOSPEED_ALIGNMENT.md. Neural-network training, automatic optical flow,
+device control, PLM transport encoding and camera-in-the-loop work remain outside
+this release; they are not prerequisites for the next ASM simulation experiments.
+
+7. CLEANUP AND RESUMPTION
+
+Cleanup tightened configuration validation, removed about 111 MiB of failed PDF-
+reader compiler cache and Finder metadata, and consolidated obsolete handoff
+notes. Original Neural 3D files and all experiment snapshots were preserved.
+No environment upgrade, git commit or new long optimization was performed.
+Do not create Markdown image-viewer wrappers; provide image paths directly.
+
+Work from /Users/zack/Computing_PhD/neural-3d-holography/plm_holography:
+../.venv/bin/python -m unittest discover -s tests -v
+../.venv/bin/python -m plmholo evaluate --run results/reconstruction_demo
+../.venv/bin/python -m plmholo optimize --config configs/sliding_w8_s4_causal.json
+../.venv/bin/python -m plmholo optimize --config configs/sliding_w8_s4_global.json
+After confirming no duplicate benchmark process is running:
+../.venv/bin/python -m plmholo benchmark --config configs/benchmark_cpu.json --resume
+
+Use new output directories when changing settings or seeds. Completed runs are
+protected from overwrite. Benchmark resume skips complete matching runs; it does
+not resume optimizer iterations inside an incomplete run. Do not reuse old tool
+session IDs. Background-process status was not confirmed during the audit because
+process inspection was restricted.
+
+--------------------------------------------------------------------------
+CHINESE VERSION / 中文版
+--------------------------------------------------------------------------
+
+PLM holography：当前进度、导师汇报与后续任务
+核查日期：2026-10-19（Asia/Hong_Kong）；会议日期：2026-10-20
+这是唯一的待办/交接入口。指南见 README.md，测试证据见 docs/VALIDATION.md。
+
+一、可以对导师这样总结（约一分钟）
+
+我已从单张相位 ASM 优化，搭建了独立的 4-bit 相位 PLM 仿真库。
+原 Neural 3D 代码保留，新实现不依赖其训练或硬件模块。目前支持一张相位
+约束三个深度、RGB 时序曝光、多帧光强积分，以及独立、分组联合、全序列
+全局、固定历史的因果优化。窗口 W 和步长 S 可配置，例如 W=8、S=4 时，
+窗口为周期 1–8、5–12、9–16，因果模式只优化新加入部分。
+4-bit 量化包括连续参考、优化后量化、STE 和平滑替代梯度；相位 LUT 可以
+替换为测量数据。可选已知眼动平移模型，对目标与重建做相同的对齐和积分。
+基础 CPU 测试已通过，保存相位后重新传播可以复现结果。现在完成的是仿真
+框架和功能验证；动态画质比较未完成，也未接入实测 LUT 或硬件。下一步在
+相同光学参数、亮度和初始相位下比较全局与因果窗口，再研究眼动和量化。
+
+二、目前有什么
+
+传播：可微 padded ASM、FFT 一致频率、旧网格对照、核缓存、裁剪、可选 NA；
+逐颜色波长/逐深度传播。单位照明振幅，phase-only。
+输入：单色/RGB、静态/动态多深度线性光强；合成场景、NPZ、图像清单，
+sRGB 解码、时间插值。演示是合成场景，没有真实场景实验数据集。
+时序：默认 GRB、1440 次物理曝光/s，每色 8 张=24 次曝光≈16.67 ms。
+RGB 固定增益默认每色 3，是模拟占空比补偿，不是测量激光功率。
+曝光加权累积光强，不跨时间叠加复振幅，不自动匹配亮度。
+算法：independent / joint / global / causal；Adam 或普通 SGD；强度 MSE
+或积分后取平方根的振幅 MSE。SGD 是优化器，不是 loss。
+量化：16 状态，圆周最近距离，保留物理 code，支持非均匀/非单调 LUT。
+眼动：可关闭，或给定/合成二维轨迹；对齐后积分，共享有效区域掩码。
+输出：配置、环境、输入哈希、相位/code、原始/积分重建、loss、MSE/PSNR、
+时间误差、固定范围图像、GIF、传播计数和耗时；新进程独立重算。
+
+三、窗口规则与当前入口
+
+用户已接受按块因果规则：历史固定，不增加重优化已提交历史的模式。
+W、S 以 RGB 周期计；单色一个周期就是一次曝光。W8/S4 第一块优化 24 张，
+之后每块优化 12 张新相位，重叠历史冻结。是离线/缓冲后的按块规划，
+不是零延迟在线计算。null stride 才是每个物理曝光推进一次，含启动前缀；
+整数 S=1 在 RGB 下推进三次曝光。global 整段同时更新，在选定窗口端点
+求平均 loss，不逐块提交。所有模式最终评价每个物理端点，完整窗口为
+主指标，启动单列。
+
+当前配置：configs/sliding_w8_s4_causal.json、sliding_w8_s4_global.json。
+64×64、48 张、3 深度、200 次/相位、motion off、gain 3。完整画质实验未跑；
+已有 stride_validation 是 16×16、4 次更新的功能检查，不能替代正式实验。
+lab_rgb_ideal.json 仍保留 global + null stride 默认值，没有悄悄改动。
+
+四、证据与现有结果
+
+清理后 40 项 CPU unittest 全通过（18.041 s）。Python 3.11.11 / PyTorch
+2.2.2 / NumPy 1.26.4；Intel Mac，CUDA 不可用。
+覆盖 ASM/有限差分梯度、颜色/深度分离、曝光积分/启动、步长/尾段、因果
+历史不变、各量化方法、眼动方向/零运动、输入及保存重建。
+最新证据：.cache/repository_audit.json、.cache/repository_audit_tests.txt。
+19 个已完成实验全部在新进程重载通过：原始/积分重建最大差异均为 0，
+arrays.npz、metadata.json、config.json、loss.csv 哈希保持不变。
+
+标准 benchmark 为原 null-stride、motion-off 设置：24 组中 14 组完成；
+12 组 static（3 seeds × 4 methods），moving seed0 只有 independent/joint。
+同场景同 seed 初始相位/目标哈希一致；每组 9600 次 phase updates，19296 次
+phase propagations，57888 次 depth propagations。尚无 summary.json/REPORT.md。
+
+直观演示 results/reconstruction_demo：静态、全局、400 次、post_quantized、
+gain 1.5；完整窗口 MSE 0.03654789 → 0.00316831。与 gain 3、200 次、smooth
+的标准 benchmark 不可混着排名。标准已完成组 MSE 约 0.19–0.21，仍需
+诊断收敛、量化、源亮度/裁剪功率及目标可实现性的影响，不能宣称高画质。
+
+参考图（直接路径，不再创建 Markdown 看图包装文件）：
+results/reconstruction_demo/comparison.png
+results/stride_validation/causal/temporal_error_explained.png
+results/perception_alignment_check/target_perception.png
+最后一张只有目标感知变换，不是相位优化重建。
+
+五、unfinished：以后从这里继续
+
+[优先] 完整 W8/S4 动态实验：同 seed causal/global，再扩展 paired seeds
+0、1、2。统一 gain、LUT、目标和 per-phase 更新预算；检查所有中间端点。
+记录画质/计算量，先不宣称方法优劣。
+
+[优先] 已知跟踪眼动的端到端画质实验：holospeed_known_motion_causal/global
+配置、数学/方向测试已具备，64×64/200 次完整实验未跑。比较眼动开/关优化
+时，需在同一观看轨迹与共同有效区域重新评价，不能直接比较不同感知目标
+及掩码的 loss。配置速度 434.2978723404255 px/s 只匹配当前 64×64、48 次、
+1440 Hz 合成运动；改尺寸、时序、场景后重算。
+
+[待完成] 原 benchmark 剩 10 组：moving seed0 global/causal；moving seed1、
+seed2 各四种方法。完成后 fresh-process evaluate，核对配对哈希/计数，生成
+报告。历史计时有任务重叠，严谨速度比较要在空闲机器上重跑。
+本次仅核查，未恢复长任务、未启动后台优化。原后台进程状态无法通过受限
+ps 确认；恢复前在终端/活动监视器确认没有重复任务。
+
+[待完成] 固定 gain/目标，受控比较 continuous、post_quantized、STE、smooth
+及收敛；不能声称自定义 smooth 更优。必要时增加窗口功率诊断，不自动拟合
+亮度掩盖约束。导入真实 focal-stack 案例：loader 已测，但真实数据画质未测。
+
+[实验室输入] 各色测量 LUT、源功率/效率、光路距离/有效口径、曝光/切换时序。
+默认 10.8 μm、640/516/455.5 nm、3.4/4.4/5.7 mm 都是模拟设置。
+
+[未来] CUDA、800×1358 尚未验证；当前非流式内存实现，保留完整目标/输出，
+全局还有整段 autograd。propagation_batch=1 不保证整段显存够用。先估算显存、
+跑短序列、再考虑分块/流式输出。
+
+[若要论文复现] 随机眼动分布/核方法、补充材料引用的 soft rounding、校准
+前向模型、论文动态基线仍有缺失或差异。当前是 Holospeed-inspired，不是
+完整 reproduction；见 docs/HOLOSPEED_ALIGNMENT.md。
+
+[本阶段不做] Neural 3D 网络训练、自动光流、硬件控制、PLM 传输位平面编码、
+相机闭环。它们不阻碍当前 ASM 仿真，不是明天前的待完成任务。
+
+六、本次整理及恢复方式
+
+修复配置检查：维度/计数拒绝浮点与 bool，pitch 必须两个分量，平滑宽度
+必须有限。有效配置的传播、损失、优化与提交规则不变。
+删除失败 PDF 阅读尝试的 Swift 编译缓存 116554588 bytes（约111 MiB）及
+本子目录的 Finder 缓存；忽略 .DS_Store。保留实验、论文摘录/截图、回归
+参考和必要配置。旧重复交接文本合并为本文。不新增图片 MD。
+不升级环境、不提交 git、不修改原 Neural 3D 代码。
+
+从 /Users/zack/Computing_PhD/neural-3d-holography/plm_holography 运行：
+../.venv/bin/python -m unittest discover -s tests -v
+../.venv/bin/python -m plmholo evaluate --run results/reconstruction_demo
+../.venv/bin/python -m plmholo optimize --config configs/sliding_w8_s4_causal.json
+../.venv/bin/python -m plmholo optimize --config configs/sliding_w8_s4_global.json
+确认无重复进程后：
+../.venv/bin/python -m plmholo benchmark --config configs/benchmark_cpu.json --resume
+
+已完成 run 受覆盖保护。改参数/seed 时换 output。benchmark --resume 跳过
+完整且配置一致的组，但单组没有迭代级断点续跑。不沿用旧 session ID。

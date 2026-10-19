@@ -73,6 +73,29 @@ class InputTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unknown"):
             validate(c)
 
+    def test_invalid_dimensions_and_counts_fail_at_configuration_boundary(self):
+        cases = [
+            ({"schedule": {"cycles": 2.0}}, "schedule.cycles"),
+            ({"schedule": {"window_cycles": True}}, "schedule.window_cycles"),
+            ({"optimization": {"iterations": 2.0}}, "optimization.iterations"),
+            ({"threads": True}, "threads"),
+            ({"optics": {"shape": [8.0, 8]}}, "optics.shape"),
+            ({"optics": {"shape": None}}, "optics.shape"),
+            ({"optics": {"crop": [True, 4]}}, "optics.crop"),
+            ({"optics": {"computational_shape": [8, 12.0]}}, "optics.computational_shape"),
+            ({"optics": {"pad_factor": True}}, "pad_factor"),
+            ({"optics": {"propagation_batch": 4.0}}, "optics.propagation_batch"),
+            ({"optics": {"pitch_m": [1.08e-5]}}, "optics.pitch_m"),
+        ]
+        for patch, message in cases:
+            with self.subTest(patch=patch), self.assertRaisesRegex(ValueError, message):
+                validate(merge(DEFAULTS, patch))
+
+    def test_nonfinite_smoothing_width_rejected(self):
+        for value in (float("inf"), float("nan")):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "finite"):
+                validate(merge(DEFAULTS, {"quantization": {"tau_start_steps": value}}))
+
 
 if __name__ == "__main__":
     unittest.main()

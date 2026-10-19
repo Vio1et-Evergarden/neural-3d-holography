@@ -70,6 +70,10 @@ def validate(config):
             if unknown:
                 raise ValueError(f"Unknown {section} options: {sorted(unknown)}")
     o, s, q, opt = (c[k] for k in ("optics", "schedule", "quantization", "optimization"))
+    def positive_integer(value):
+        # JSON 2.0 and true are not valid tensor sizes or Python range counts.
+        return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
     # Old resolved run configs predate stride; omission retains their exact behavior.
     s.setdefault("stride_cycles", None)
     colors = o["colors"]
@@ -79,6 +83,8 @@ def validate(config):
         raise ValueError("One wavelength and fixed gain are required per color")
     if sorted(s["order"]) != sorted(colors):
         raise ValueError("schedule.order must contain each configured color once")
+    if not isinstance(o["pitch_m"], (list, tuple)) or len(o["pitch_m"]) != 2:
+        raise ValueError("optics.pitch_m must contain two values [dy, dx] in meters")
     if any(not math.isfinite(x) or x <= 0 for x in [*o["wavelengths_m"], *o["pitch_m"],
                                                     s["rate_hz"], *s["gains"]]):
         raise ValueError("Wavelengths, pitch, rate and gains must be finite and positive")
@@ -86,19 +92,24 @@ def validate(config):
         raise ValueError("Depths must be finite and nonnegative")
     for key in ("shape", "crop", "computational_shape"):
         value = o[key]
-        if value is not None and (len(value) != 2 or any(int(v) != v or v < 1 for v in value)):
+        if key == "shape" and value is None:
+            raise ValueError("optics.shape must contain two positive integers")
+        if value is not None and (not isinstance(value, (list, tuple)) or len(value) != 2
+                                  or any(not positive_integer(v) for v in value)):
             raise ValueError(f"optics.{key} must contain two positive integers")
     o["crop"] = o["crop"] or list(o["shape"])
     if any(a > b for a, b in zip(o["crop"], o["shape"])):
         raise ValueError("Output crop cannot exceed the phase shape")
-    if int(o["pad_factor"]) != o["pad_factor"] or o["pad_factor"] < 1:
+    if not positive_integer(o["pad_factor"]):
         raise ValueError("pad_factor must be a positive integer")
     o["computational_shape"] = o["computational_shape"] or [o["pad_factor"] * n for n in o["shape"]]
     if any(a < b for a, b in zip(o["computational_shape"], o["shape"])):
         raise ValueError("Computational grid must contain the phase grid")
-    for value in [s["cycles"], s["window_cycles"], opt["iterations"], c["threads"], o["propagation_batch"]]:
-        if int(value) != value or value < 1:
-            raise ValueError("Counts must be positive integers")
+    for name, value in [("schedule.cycles", s["cycles"]), ("schedule.window_cycles", s["window_cycles"]),
+                        ("optimization.iterations", opt["iterations"]), ("threads", c["threads"]),
+                        ("optics.propagation_batch", o["propagation_batch"])]:
+        if not positive_integer(value):
+            raise ValueError(f"{name} must be a positive integer")
     stride = s["stride_cycles"]
     if stride is not None:
         if isinstance(stride, bool) or not isinstance(stride, int) or not 1 <= stride <= s["window_cycles"]:
@@ -111,8 +122,9 @@ def validate(config):
         raise ValueError("This PLM release uses exactly 16 states")
     if q["method"] not in ("continuous", "post_quantized", "ste", "smooth"):
         raise ValueError("Unknown quantization method")
-    if not 0 < q["tau_end_steps"] <= q["tau_start_steps"]:
-        raise ValueError("Smoothing widths must satisfy 0 < end <= start")
+    if (not all(math.isfinite(q[k]) for k in ("tau_start_steps", "tau_end_steps"))
+            or not 0 < q["tau_end_steps"] <= q["tau_start_steps"]):
+        raise ValueError("Smoothing widths must be finite and satisfy 0 < end <= start")
     if opt["method"] not in ("independent", "joint", "global", "causal"):
         raise ValueError("Unknown temporal optimization method")
     if opt["optimizer"] not in ("adam", "sgd") or opt["loss"] not in ("intensity_mse", "amplitude_mse"):

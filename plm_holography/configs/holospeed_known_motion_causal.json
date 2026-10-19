@@ -1,0 +1,10 @@
+{
+  "extends": "lab_rgb_ideal.json",
+  "name": "holospeed_known_motion_causal_rgb_adaptation",
+  "output": "../results/holospeed_known_motion_causal",
+  "optics": {"shape": [64, 64]},
+  "target": {"kind": "synthetic", "scene": "moving"},
+  "schedule": {"cycles": 16, "window_cycles": 8, "stride_cycles": null, "rate_hz": 1440},
+  "motion": {"enabled": true, "path": null, "velocity_px_s": [434.2978723404255, 0]},
+  "optimization": {"method": "causal"}
+}

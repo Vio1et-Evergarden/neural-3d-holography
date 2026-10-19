@@ -5,6 +5,17 @@ incoherent temporal integration, global and causal sequence optimization, and an
 optional eye-motion model. The original repository is preserved as a reference;
 this package does not import its code or hardware dependencies.
 
+Progress, the supervisor-meeting summary and remaining tasks are consolidated in
+**`HANDOFF.txt`**. Verification is in `docs/VALIDATION.md`: 40 CPU tests pass;
+the standard benchmark has 14/24 complete runs. Functional checks do not yet
+establish dynamic reconstruction quality or superiority of sliding windows.
+
+The default motion-disabled runs are fixed-eye baselines, not full Holospeed
+reproductions. See `docs/HOLOSPEED_ALIGNMENT.md` for the paper/code audit.
+`holospeed_known_motion_causal.json` and `holospeed_known_motion_global.json`
+enable known tracking for the supplied moving scene and score every physical
+endpoint; their RGB optics and LUT surrogate remain explicit adaptations.
+
 ## Run
 
 Use the existing project environment. No installation is required:
@@ -12,14 +23,19 @@ Use the existing project environment. No installation is required:
 ```bash
 cd /Users/zack/Computing_PhD/neural-3d-holography/plm_holography
 ../.venv/bin/python -m unittest discover -s tests -v
-../.venv/bin/python -m plmholo optimize --config configs/smoke.json
 ../.venv/bin/python -m plmholo evaluate --run results/smoke
 ```
 
-The smoke configuration is a small integration check. The full CPU comparison is:
+This checkout already has `results/smoke`. To create a new small check, use
+`optimize --config configs/smoke.json` in a fresh checkout, or copy that config
+inside `configs/` and select a new `output`. Completed runs cannot be overwritten.
+Current W8/S4 work uses `sliding_w8_s4_causal.json` / `sliding_w8_s4_global.json`;
+the base profile retains its original global/null-stride defaults.
+
+To continue the partial CPU comparison, first ensure another copy is not running:
 
 ```bash
-../.venv/bin/python -m plmholo benchmark --config configs/benchmark_cpu.json
+../.venv/bin/python -m plmholo benchmark --config configs/benchmark_cpu.json --resume
 ```
 
 This runs 24 experiments: two scenes, three paired seeds, and four temporal
@@ -29,9 +45,29 @@ overlapping 24-subframe window, and 200 Adam updates per phase exposure.
 match. Use a new output path when changing any settings. A normal `optimize`
 command refuses to overwrite a completed run.
 
+## Configuration map
+
+These profiles serve distinct purposes; their scores should not be mixed.
+
+| Profile | Purpose / status |
+|---|---|
+| `lab_rgb_ideal.json` | Shared ideal optics, gain 3, 200 updates; global/null-stride default |
+| `sliding_w8_s4_causal.json`, `sliding_w8_s4_global.json` | Configurable-window research entry; full quality runs pending |
+| `holospeed_known_motion_causal.json`, `holospeed_known_motion_global.json` | Matched deterministic tracking at every physical endpoint; full quality runs pending |
+| `benchmark_cpu.json` | Four methods, two scenes, three seeds; 14/24 complete |
+| `reconstruction_demo.json` | Static gain-1.5, 400-update post-quantized illustration |
+| `motion_example.json` | Small motion integration example, not matched-tracking validation |
+| `smoke.json` | Short functional run |
+| `tutorial_reference.json` | Earlier monochrome optical conventions, new loss/targets |
+| `full_resolution_cuda.json` | Future GPU template; memory and execution unvalidated |
+
+Source is in `plmholo/`, tests in `tests/`, calibration examples in `data/`,
+experiment snapshots in ignored `results/`, and audit/render caches in ignored
+`.cache/`. Preserve calibration and experiment data when cleaning caches.
+
 ## Main settings
 
-Configuration files are JSON and can `extend` another JSON file using the
+Configuration files are JSON and can inherit another JSON file using the
 `extends` key. File paths introduced in each configuration resolve relative to
 that file, including paths in inherited configurations. Outputs must stay inside
 this project folder. `config.json` in each run records all resolved values.
@@ -206,7 +242,7 @@ Quantization modes:
 Smooth and STE gradients are surrogates, not derivatives of the true step
 function. Actual discrete loss may rise. Each local optimizer stage retains its
 best evaluated physical state. The smooth method is our explicit implementation,
-not a claimed reproduction of Holospeed's undocumented supplementary details.
+not the Agustsson et al. soft-rounding function identified in Holospeed's supplement.
 
 ## Inputs and optional motion
 

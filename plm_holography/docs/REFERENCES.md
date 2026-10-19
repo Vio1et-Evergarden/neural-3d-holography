@@ -15,11 +15,15 @@ hardware or change the machine.
    Sections 4 and 4.2 motivate temporal perception, frequent overlapping-window
    constraints and fixed-history sequential optimization. Equation 17 freezes
    past frames and optimizes the newest frame. Section 5 describes a 4-bit,
-   1440-Hz PLM and soft rounding, but delegates details to supplementary material.
-   We implement a specified surrogate, not an exact supplementary-method replica.
+   1440-Hz PLM and soft rounding. Supplement section 6 identifies Agustsson et al.'s
+   soft-rounding function and annealing of its strength. Our circular LUT softmax
+   surrogate is different, not an exact replica of that referenced method.
    Motion uncertainty and optical-flow estimation are outside this release.
    Local file:
    `/Users/zack/Desktop/PhD/paper/Holospeed- High-Speed Holographic Displays for Dynamic Content.pdf`.
+   Author supplement: https://dorianchan.com/holospeed/supplement.pdf.
+   Equation-by-equation correspondence and remaining differences are recorded
+   in `HOLOSPEED_ALIGNMENT.md`.
 
 3. **Laboratory DMD PLM notes**. Pages 5, 16, 19, 25-26 and 49 inform code/state
    separation, eight frames per color, 10.8 um pitch, wavelength examples and
@@ -30,5 +34,5 @@ hardware or change the machine.
    `/Users/zack/Desktop/DMD PLM.pdf`.
 
 The parent Stanford repository is distributed under the MIT license. The new
-implementation is self-contained; the retained upstream notice below acknowledges
+implementation is self-contained; the retained upstream notice in `../LICENSE` acknowledges
 the reference implementation and any derived numerical conventions.

@@ -1,0 +1,6 @@
+{
+  "extends": "holospeed_known_motion_causal.json",
+  "name": "holospeed_known_motion_global_rgb_adaptation",
+  "output": "../results/holospeed_known_motion_global",
+  "optimization": {"method": "global"}
+}
