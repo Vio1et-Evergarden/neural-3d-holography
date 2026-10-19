@@ -15,7 +15,8 @@ DEFAULTS = {
                "frequency_grid": "fft", "numerical_aperture": None,
                "propagation_batch": 4},
     "schedule": {"cycles": 16, "order": ["G", "R", "B"], "rate_hz": 1440.0,
-                 "durations_s": None, "window_cycles": 8, "gains": [3., 3., 3.]},
+                 "durations_s": None, "window_cycles": 8, "stride_cycles": None,
+                 "gains": [3., 3., 3.]},
     "target": {"kind": "synthetic", "scene": "moving", "path": None},
     "motion": {"enabled": False, "path": None, "velocity_px_s": [0., 0.]},
     "quantization": {"method": "smooth", "levels": 16, "lut_path": None,
@@ -69,6 +70,8 @@ def validate(config):
             if unknown:
                 raise ValueError(f"Unknown {section} options: {sorted(unknown)}")
     o, s, q, opt = (c[k] for k in ("optics", "schedule", "quantization", "optimization"))
+    # Old resolved run configs predate stride; omission retains their exact behavior.
+    s.setdefault("stride_cycles", None)
     colors = o["colors"]
     if len(colors) not in (1, 3) or len(set(colors)) != len(colors) or any(x not in ("R", "G", "B") for x in colors):
         raise ValueError("Use one monochrome channel or all three unique R,G,B channels")
@@ -96,6 +99,10 @@ def validate(config):
     for value in [s["cycles"], s["window_cycles"], opt["iterations"], c["threads"], o["propagation_batch"]]:
         if int(value) != value or value < 1:
             raise ValueError("Counts must be positive integers")
+    stride = s["stride_cycles"]
+    if stride is not None:
+        if isinstance(stride, bool) or not isinstance(stride, int) or not 1 <= stride <= s["window_cycles"]:
+            raise ValueError("stride_cycles must be null or an integer with 1 <= stride_cycles <= window_cycles")
     if o["frequency_grid"] not in ("fft", "legacy"):
         raise ValueError("frequency_grid must be fft or legacy")
     if o["numerical_aperture"] is not None and not 0 < o["numerical_aperture"] <= 1:

@@ -41,6 +41,12 @@ def metrics(perceived, target, mask, window):
     }
 
 
+def selected_window_loss(perceived, target, mask, schedule, kind):
+    """Window-sampled diagnostic; the actual training objective for global only."""
+    endpoints = schedule.endpoint_indices()
+    return loss_value(perceived[endpoints], target[endpoints], mask[endpoints], kind).item()
+
+
 def evaluate_run(run, device="cpu"):
     """Read the immutable run snapshot; no dependence on original target/LUT files."""
     run = Path(run)
@@ -67,6 +73,8 @@ def evaluate_run(run, device="cpu"):
         positions = tensor("motion_positions_px")
         np.testing.assert_allclose(data["times_s"], schedule.times.cpu().numpy(), rtol=0, atol=1e-12)
         np.testing.assert_array_equal(data["color_indices"], schedule.colors.cpu().numpy())
+        if "selected_window_endpoints" in data:
+            np.testing.assert_array_equal(data["selected_window_endpoints"], schedule.endpoint_indices().cpu().numpy())
     motion = None
     if cfg["motion"]["enabled"]:
         from .motion import EyeMotion
@@ -87,6 +95,8 @@ def evaluate_run(run, device="cpu"):
                   raw_reconstruction_max_error=(raw-expected_raw).abs().max().item(),
                   perceived_reconstruction_max_error=(perceived-expected).abs().max().item(),
                   configured_loss_all_timestamps=loss_value(perceived, goal, mask, cfg["optimization"]["loss"]).item(),
+                  configured_loss_selected_windows=selected_window_loss(perceived, goal, mask, schedule, cfg["optimization"]["loss"]),
+                  selected_window_endpoints=schedule.endpoint_indices().cpu().tolist(),
                   device=device, reload_verified=True)
     recorded = json.loads((run/"metadata.json").read_text())
     for key in ("all_timestamps_intensity_mse", "full_window_intensity_mse"):
@@ -96,5 +106,12 @@ def evaluate_run(run, device="cpu"):
     if not math.isclose(result["configured_loss_all_timestamps"], recorded["configured_loss_all_timestamps"],
                         rel_tol=2e-5, abs_tol=2e-7):
         raise AssertionError("Reloaded configured loss differs from the reported run loss")
+    # Old snapshots do not contain these fields; their all-timestamp checks remain valid.
+    if "configured_loss_selected_windows" in recorded:
+        if result["selected_window_endpoints"] != recorded["selected_window_endpoints"]:
+            raise AssertionError("Reloaded window endpoints differ from the reported run")
+        if not math.isclose(result["configured_loss_selected_windows"], recorded["configured_loss_selected_windows"],
+                            rel_tol=2e-5, abs_tol=2e-7):
+            raise AssertionError("Reloaded selected-window loss differs from the reported run loss")
     (run/"evaluation.json").write_text(json.dumps(result, indent=2, allow_nan=False)+"\n")
     return result

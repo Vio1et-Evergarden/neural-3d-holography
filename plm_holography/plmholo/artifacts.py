@@ -8,7 +8,7 @@ import platform
 import numpy as np
 import torch
 from .config import ROOT
-from .evaluation import metrics
+from .evaluation import metrics, selected_window_loss
 from .losses import loss_value
 from . import __version__
 
@@ -121,6 +121,7 @@ def save_run(ctx, result):
         "durations_s": array(schedule.durations), "source_gains": array(schedule.gains),
         "lut_phase_rad": array(ctx.lut.phases), "lut_codes": array(ctx.lut.codes),
         "motion_positions_px": array(result["motion_positions"]),
+        "selected_window_endpoints": array(schedule.endpoint_indices()),
     }
     if result["codes"] is not None:
         arrays["codes"] = array(result["codes"]).astype(np.uint8)
@@ -144,6 +145,9 @@ def save_run(ctx, result):
         "motion_sha256": digest(result["motion_positions"]),
         "final": final, "initial": initial,
         "configured_loss_all_timestamps": loss_value(result["perceived"], result["target_perceived"], result["mask"], ctx.config["optimization"]["loss"]).item(),
+        "configured_loss_selected_windows": selected_window_loss(result["perceived"], result["target_perceived"], result["mask"], schedule, ctx.config["optimization"]["loss"]),
+        "selected_window_endpoints": schedule.endpoint_indices().cpu().tolist(),
+        "window_subframes": schedule.window, "stride_subframes": schedule.stride,
         "preview_clipped_fraction": (result["perceived"] > 1).float().mean().item(),
         "power_units": "relative linear intensity; gains fixed, RGB duty compensation explicit",
         "checkpoint_selection": "Best actual evaluated state within each optimizer stage; initialization included",

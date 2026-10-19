@@ -104,8 +104,12 @@ def optimize(ctx, verbose=True):
 
     kind = opt["loss"]
     if method == "global":
+        endpoints = schedule.endpoint_indices()
         def objective(raw):
             perceived, mask = ctx.temporal.reconstruct(raw, indices_all)
+            if schedule.stride is not None:
+                return loss_value(perceived[endpoints], target_perceived[endpoints],
+                                  (mask*target_mask)[endpoints], kind)
             return loss_value(perceived, target_perceived, mask*target_mask, kind)
         final_phase, final_raw = solve(initial, indices_all, objective, "global")
     elif method == "joint":
@@ -122,31 +126,42 @@ def optimize(ctx, verbose=True):
             phases.append(phase)
             raws.append(raw)
         final_phase, final_raw = torch.cat(phases), torch.cat(raws)
-    else:
+    elif method == "independent":
         phases, raws = [], []
         for frame in range(len(schedule)):
             indices = indices_all[frame:frame+1]
-            if method == "independent":
-                color = int(schedule.colors[frame])
-                coefficient = schedule.gains[color]*schedule.duty(frame)
-                def objective(raw):
-                    return loss_value(coefficient*raw[0], ctx.target[frame, color], kind=kind)
-            else:
-                begin = max(0, frame-schedule.window+1)
-                window_indices = indices_all[begin:frame+1]
-                # Frozen tensors, not aliases to optimizer parameters or their graphs.
-                past = torch.cat(raws[begin:frame], dim=0) if frame > begin else initial_raw[:0]
-                past = past.detach()
-                goal, target_valid = target_perceived[frame], target_mask[frame]
-                def objective(raw):
-                    combined = torch.cat([past, raw], dim=0)
-                    perceived, valid = ctx.temporal.reconstruct_final(combined, window_indices)
-                    return loss_value(perceived, goal, valid*target_valid, kind)
+            color = int(schedule.colors[frame])
+            coefficient = schedule.gains[color]*schedule.duty(frame)
+            def objective(raw):
+                return loss_value(coefficient*raw[0], ctx.target[frame, color], kind=kind)
             phase, raw = solve(initial[indices], indices, objective, f"frame_{frame}")
             phases.append(phase)
             raws.append(raw)
             if verbose and (frame == 0 or (frame+1) % schedule.window == 0 or frame+1 == len(schedule)):
                 print(f"  committed {frame+1}/{len(schedule)} phases", flush=True)
+        final_phase, final_raw = torch.cat(phases), torch.cat(raws)
+    else:  # causal: legacy single-exposure commits, or explicit cycle-sized blocks
+        phases, raws = [], []
+        cached_raw = initial_raw[:0]
+        for begin, end in schedule.causal_blocks():
+            indices = indices_all[begin:end]
+            window_begin = max(0, end-schedule.window)
+            window_indices = indices_all[window_begin:end]
+            history_count = begin-window_begin
+            # Only detached, already committed intensities enter the history.
+            past = cached_raw[-history_count:].detach() if history_count else initial_raw[:0]
+            goal, target_valid = target_perceived[end-1], target_mask[end-1]
+            def objective(raw):
+                combined = torch.cat([past, raw], dim=0)
+                perceived, valid = ctx.temporal.reconstruct_final(combined, window_indices)
+                return loss_value(perceived, goal, valid*target_valid, kind)
+            stage = f"frame_{begin}" if schedule.stride is None else f"block_{begin}_{end}"
+            phase, raw = solve(initial[indices], indices, objective, stage)
+            phases.append(phase)
+            raws.append(raw)
+            cached_raw = torch.cat([past, raw], dim=0).detach()
+            if verbose and (begin == 0 or end % schedule.window == 0 or end == len(schedule)):
+                print(f"  committed {end}/{len(schedule)} phases", flush=True)
         final_phase, final_raw = torch.cat(phases), torch.cat(raws)
 
     with torch.no_grad():

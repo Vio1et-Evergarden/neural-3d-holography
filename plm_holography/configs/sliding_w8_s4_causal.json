@@ -1,0 +1,7 @@
+{
+  "extends": "lab_rgb_ideal.json",
+  "name": "sliding_w8_s4_causal",
+  "output": "../results/sliding_w8_s4_causal",
+  "schedule": {"window_cycles": 8, "stride_cycles": 4},
+  "optimization": {"method": "causal"}
+}

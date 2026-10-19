@@ -12,6 +12,7 @@ class Schedule:
     gains: torch.Tensor
     window: int
     names: tuple
+    stride: int | None = None
 
     @classmethod
     def from_config(cls, config, device="cpu"):
@@ -22,14 +23,39 @@ class Schedule:
         dt = np.full(len(color), 1/s["rate_hz"]) if durations is None else np.asarray(durations, dtype=float)
         if dt.shape != (len(color),) or not np.isfinite(dt).all() or (dt <= 0).any():
             raise ValueError("durations_s must give one finite positive duration per physical subframe")
+        stride_cycles = s.get("stride_cycles")
+        stride = None if stride_cycles is None else stride_cycles*len(names)
         return cls(torch.tensor(color, device=device, dtype=torch.long),
                    torch.tensor(dt.cumsum()-dt/2, device=device, dtype=torch.float64),
                    torch.tensor(dt, device=device, dtype=torch.float32),
                    torch.tensor(s["gains"], device=device, dtype=torch.float32),
-                   s["window_cycles"]*len(names), names)
+                   s["window_cycles"]*len(names), names, stride)
 
     def __len__(self):
         return len(self.colors)
+
+    def optimization_ends(self):
+        """Exclusive window ends. Explicit stride starts at the first full window.
+
+        Always include the last exposure, even if the final step is shorter.
+        None retains legacy per-exposure endpoints, including startup prefixes.
+        """
+        if self.stride is None:
+            return list(range(1, len(self)+1))
+        ends = list(range(min(self.window, len(self)), len(self)+1, self.stride))
+        if ends[-1] != len(self):
+            ends.append(len(self))
+        return ends
+
+    def endpoint_indices(self):
+        return torch.tensor(self.optimization_ends(), device=self.colors.device, dtype=torch.long)-1
+
+    def causal_blocks(self):
+        """Disjoint new variables; overlapping history is never re-optimized."""
+        start = 0
+        for end in self.optimization_ends():
+            yield start, end
+            start = end
 
     def dense(self, raw_intensity, indices):
         colors = self.colors[indices]

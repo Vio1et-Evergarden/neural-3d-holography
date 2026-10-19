@@ -17,6 +17,14 @@ def run_one(config, verbose=True):
     ctx = prepare(config)
     print(f"{config['name']}: {config['optimization']['method']}, {config['quantization']['method']}, "
           f"{len(ctx.schedule)} subframes, {ctx.device}", flush=True)
+    if ctx.schedule.stride is not None:
+        if config["optimization"]["method"] in ("global", "causal"):
+            print(f"  window={config['schedule']['window_cycles']} RGB/mono cycles, "
+                  f"stride={config['schedule']['stride_cycles']} cycles; "
+                  f"{len(ctx.schedule.optimization_ends())} optimization endpoints; "
+                  "evaluation still covers every physical exposure", flush=True)
+        else:
+            print("  stride does not change independent or non-overlapping joint optimization", flush=True)
     result = optimize(ctx, verbose=verbose)
     meta = save_run(ctx, result)
     print(f"  full-window MSE={meta['final']['full_window_intensity_mse']}; "
@@ -42,7 +50,7 @@ def benchmark(config, resume=False):
                 c = validate(c)
                 saved = Path(c["output"])/"metadata.json"
                 if resume and saved.exists():
-                    if json.loads(saved.with_name("config.json").read_text()) != c:
+                    if validate(json.loads(saved.with_name("config.json").read_text())) != c:
                         raise ValueError(f"Cannot resume a run with changed configuration: {saved.parent}")
                     meta = json.loads(saved.read_text())
                 else:

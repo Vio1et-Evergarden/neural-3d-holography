@@ -1,0 +1,6 @@
+{
+  "extends": "sliding_w8_s4_causal.json",
+  "name": "sliding_w8_s4_global",
+  "output": "../results/sliding_w8_s4_global",
+  "optimization": {"method": "global"}
+}

@@ -45,6 +45,7 @@ this project folder. `config.json` in each run records all resolved values.
 | `optimization.lr` | null selects 0.01 continuous/post-quantized, 0.001 STE/smooth |
 | `quantization.method` | `continuous`, `post_quantized`, `ste`, or `smooth` (default) |
 | `schedule.window_cycles` | 8: eight patterns per color, 24 physical updates in RGB |
+| `schedule.stride_cycles` | null preserves per-physical-update optimization; integer selects block stride in RGB/mono cycles |
 | `schedule.cycles` | 16: total RGB cycles in the simulated sequence |
 | `schedule.order` | `["G","R","B"]`; one occurrence of each configured color |
 | `schedule.rate_hz` | 1440 physical updates per second, not 1440 RGB cycles |
@@ -77,15 +78,72 @@ Its gains are explicitly specified, never fitted during optimization.
 - **Joint:** optimize each non-overlapping frame group against its integrated
   target. Evaluation still measures every overlapping window, including those
   crossing group boundaries.
-- **Global:** update all phases together using every overlapping window endpoint.
-  It has access to the whole target sequence.
-- **Causal:** at each physical update, optimize only the newest phase; cache and
-  freeze all previously committed intensities. Only targets up to that update
-  enter the objective. It cannot revise frames already displayed.
+- **Global:** update all phases together using the selected window endpoints.
+  With the default null stride, use every endpoint. It has access to the whole
+  target sequence.
+- **Causal:** cache and freeze previously committed intensities. With the default
+  null stride, optimize only the newest physical phase at each update. With an
+  explicit cycle stride, jointly optimize the first window, then only each new
+  block. Targets beyond that block never enter its objective. A block must be
+  planned before its first exposure and requires its targets in advance; this
+  is block-causal planning, not zero-lookahead single-exposure streaming.
 
 There is no claim that these objectives have equal information access or that
 one method always wins. The benchmark pairs initial phases and seeds, fixes the
 optical model and brightness, and reports actual propagation counts and runtime.
+
+## Configurable overlapping windows
+
+Both global and causal modes accept, for example:
+
+```json
+"schedule": {"window_cycles": 8, "stride_cycles": 4}
+```
+
+Here W=8 and S=4 are **RGB cycles**, not individual physical PLM updates. For
+monochrome, a cycle is one physical update. In RGB, the windows cover cycles
+1–8, 5–12, 9–16: physical updates 1–24, 13–36, 25–48. An integer stride must
+satisfy 1 <= S <= W; S=W gives non-overlapping windows. An omitted or null stride
+retains the old behavior exactly, including optimizing startup prefixes.
+`stride_cycles: 1` instead means one complete RGB cycle, not one physical update.
+
+In explicit-stride causal mode, jointly optimize cycles 1–8 first, then freeze
+them. For window 5–12, only cycles 9–12 can change; cycles 5–8 contribute fixed
+historical intensity. Global mode instead updates the whole sequence together,
+averaging errors at the selected window endpoints. It does not separately commit
+one window at a time. Independent and fixed-group joint baselines ignore stride;
+their optimization definitions remain unchanged.
+
+Explicit-stride optimization starts at the first complete window, without adding
+separate startup-prefix objectives. If the entire sequence is shorter than W,
+optimize its one available prefix. Always include the sequence's final endpoint:
+when the remaining new block is shorter than S, optimize all of that block with
+the available trailing history. This last step can be shorter than the configured
+stride, and the final window still has length W when enough history exists.
+There is no wraparound, duplicated phase, or dropped tail.
+
+**Evaluation always covers every physical update**, including intermediate and
+startup windows, regardless of optimization stride. Thus a large stride cannot
+hide intermediate-frame errors by removing them from the main quality metrics.
+`configured_loss_selected_windows` is the selected-window diagnostic (the global
+training objective); `configured_loss_all_timestamps` includes every endpoint.
+For causal mode, `loss.csv` records each committed block's own objective.
+Saved `selected_window_endpoints` are zero-based physical indices, not RGB cycles.
+
+Ready-to-run examples (separate output directories):
+
+```bash
+../.venv/bin/python -m plmholo optimize --config configs/sliding_w8_s4_causal.json
+../.venv/bin/python -m plmholo evaluate --run results/sliding_w8_s4_causal
+
+../.venv/bin/python -m plmholo optimize --config configs/sliding_w8_s4_global.json
+../.venv/bin/python -m plmholo evaluate --run results/sliding_w8_s4_global
+```
+
+Both inherit the same optics, targets, gain, seed and quantizer. Each phase still
+receives the configured number of optimizer updates; changing S changes which
+variables are optimized together, not their per-phase update budget. These are
+offline simulations; no real-time block-computation guarantee is made.
 
 ## Physical conventions
 
@@ -107,8 +165,10 @@ the physical color schedule visible. For a static target and complete balanced
 window, ideal RGB duty compensation reproduces the reference brightness.
 
 At startup, integrate the available prefix with its actual duration. Startup
-errors participate in global/causal optimization but are reported separately;
-the main benchmark score uses complete windows. No end-to-start wrapping occurs.
+errors participate in default null-stride global/causal optimization; explicit
+stride instead starts at the first full window as described above. Startup is
+always evaluated and reported separately; the main benchmark score uses complete
+windows. No end-to-start wrapping occurs.
 Intensity MSE is the default. Amplitude MSE takes square roots **after** temporal
 intensity integration. Neither fits a brightness multiplier.
 

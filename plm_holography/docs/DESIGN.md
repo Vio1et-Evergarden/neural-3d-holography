@@ -6,7 +6,7 @@
 |---|---|
 | `config.py` | Resolve editable JSON, inherit profiles, validate physical dimensions |
 | `propagation.py` | `ASM(phases[S,H,W], colors[S]) -> complex[S,D,h,w]` |
-| `schedule.py` | Physical colors, midpoint timestamps, exposures, gains and window length |
+| `schedule.py` | Physical colors, timestamps, exposures, gains, windows and block endpoints |
 | `targets.py` | Prepare `intensity[S,C,D,h,w]` from synthetic, NPZ or image inputs |
 | `quantization.py` | Physical LUT mapping and hard-forward derivative surrogates |
 | `temporal.py` | Duration-weighted causal box means; color-expanded intensity integration |
@@ -70,10 +70,27 @@ spatial error within this mask separately for every time/color/depth, then
 average those values equally. A trajectory with no common valid pixels raises
 an error instead of reporting a spuriously low loss.
 
-Global uses all endpoints, including startup. Joint uses each non-overlapping
-group's endpoint, with a shorter final group if necessary. Causal uses the
-current endpoint only; past intensities have no graph attached. Every method
-is finally evaluated on the same complete sequence and all overlapping windows.
+With omitted/null `stride_cycles`, global uses all endpoints including startup,
+and causal optimizes one new phase per physical update. This legacy behavior is
+preserved. With explicit S=`stride_cycles`, define W=colors*window_cycles and
+K=colors*S. Select exclusive ends W,W+K,W+2K,... and append the sequence end if
+needed. For a sequence shorter than W, select only its end. Require 1<=S<=W/colors
+to prevent gaps in coverage. All physical phases participate in an objective.
+
+Global averages loss across those selected endpoints while updating all phases.
+Causal partitions new variables as [0,first_end), [first_end,next_end), etc.
+At end e it integrates history plus new phases over [max(0,e-W),e); historical
+intensities are detached and committed phases never change. Only this endpoint
+is scored in a causal stage. First jointly solve the full initial window, then
+solve S new cycles per stage, except for a shorter tail. This requires the whole
+new block's targets before its first exposure; it is causal between committed
+blocks, not a claim of instantaneous, future-free operation within a block.
+
+Joint still uses non-overlapping groups of W, and independent still solves each
+phase separately; neither changes with stride. Every method is finally evaluated
+on the complete sequence at every physical endpoint, including startup. The
+selected-window score is also saved and rechecked on reload, separately from the
+all-endpoint score. Endpoint arrays in artifacts use zero-based physical indices.
 
 ## Quantization derivative
 

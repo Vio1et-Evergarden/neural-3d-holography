@@ -1,0 +1,64 @@
+PLM holography handoff — 2026-10-19
+
+UPDATE: Configurable stride is now implemented and CPU-validated.
+schedule.stride_cycles=null (or omitted) preserves the original per-physical-frame
+behavior. An integer 1<=S<=window_cycles uses RGB/mono cycle units, starts at the
+first full window, and includes a shortened final step when needed. For W=8,S=4,
+causal first jointly solves cycles 1-8, then freezes history and solves new cycles
+9-12, then 13-16. Global jointly updates the whole sequence using those window
+endpoints. Evaluation still covers every physical exposure. Block-causal planning
+requires each new block's targets before displaying that block.
+Use configs/sliding_w8_s4_causal.json or configs/sliding_w8_s4_global.json.
+36 tests passed; 32 legacy combinations reproduced pre-change outputs exactly.
+Both W8/S4 CLI modes passed short CPU runs and fresh-process reload (zero error).
+See docs/VALIDATION.md and README.md. No full benchmark or hardware work was added
+as part of this extension; the unfinished benchmark below remains a dated snapshot.
+
+Implementation is available under plm_holography/. Original repository modules
+are not imported or modified by this library. Reuse ../.venv/bin/python here.
+
+Implemented: padded differentiable ASM; RGB scheduling; intensity-based temporal
+integration; static/dynamic focal stacks; independent, fixed-group, global and
+causal optimization; continuous/post-quantized/STE/smooth phase methods;
+replaceable per-color 16-state LUTs; optional translation-based eye motion;
+artifact saving, fresh-process evaluation, benchmark CLI and documentation.
+
+Verified: 26 CPU tests passed. Smoke, motion and reconstruction demonstration
+runs saved and reloaded successfully. Reconstruction demo full-window intensity
+MSE is 0.0031683063; reload raw/perceived differences are zero. This demonstration
+uses fixed gains 1.5 and 400 post-quantized updates, unlike the common benchmark
+(gains 3, 200 smooth-surrogate updates); do not rank them as matched experiments.
+
+Unfinished / next work:
+1. Finish the 24-run benchmark and its final report. Last filesystem inspection
+   found 14 completed rows in results/benchmark_cpu/summary.csv (all 12 static
+   runs, moving seed 0 independent and joint). Treat this as a dated snapshot;
+   inspect current files before resuming. Earlier process session IDs are no
+   longer accessible, so their current execution state is not confirmed.
+   Do not start a duplicate while an existing benchmark is still running.
+   Once stopped, from this directory run:
+   ../.venv/bin/python -m plmholo benchmark --config configs/benchmark_cpu.json --resume
+   Completed matching runs are skipped; incomplete individual runs restart.
+2. Evaluate each completed benchmark run in a fresh process:
+   ../.venv/bin/python -m plmholo evaluate --run results/benchmark_cpu/RUN_NAME
+   Inspect reload_verification.json and evaluation.json; do not assume the
+   previous background verifier finished. Check paired initialization/target
+   identifiers and propagation counts across methods for each seed and scene.
+3. Summarize quality, temporal stability and computation after all runs finish.
+   Some recorded timings overlap other validation jobs, so rerun in isolation
+   if making rigorous runtime comparisons. Default benchmark residuals are
+   substantial: source brightness, target power and finite-crop light loss
+   constrain the result. Do not introduce automatic brightness fitting to hide it.
+4. CUDA, full-resolution execution and hardware behavior remain unvalidated.
+   Measured wavelength-dependent phase LUTs, source powers and optical geometry
+   are future lab inputs, not verified properties of the current ideal model.
+
+User now wants a gradual explanation of the physical model and how to use the
+library, with little implementation detail. Start by opening the existing
+reconstruction_demo/comparison.png and re-evaluating saved phases; no need to
+repeat a long optimization. Explain three depths as cross sections of one field,
+RGB as sequential physical exposures, and temporal accumulation as weighted
+intensity addition. Introduce global versus causal methods after this is clear.
+
+Useful documents: README.md, docs/DESIGN.md, docs/REFERENCES.md,
+docs/VALIDATION.md. All generated experiments remain under results/.
